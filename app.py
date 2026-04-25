@@ -5,7 +5,6 @@ import asyncio
 import edge_tts
 import random
 from groq import Groq
-from pexels_api import API as PexelsAPI
 from moviepy.editor import VideoFileClip, AudioFileClip
 
 async def generate_video():
@@ -13,11 +12,8 @@ async def generate_video():
         # 1. BRAIN: Find Trend
         print("--- STEP 1: FINDING TREND ---")
         feed = feedparser.parse("https://trends.google.com/trends/trendingsearches/daily/rss?geo=US")
-        if not feed.entries:
-            trend = "Technology and Future" # Fallback
-        else:
-            trend = feed.entries[0].title
-        print(f"Trend found: {trend}")
+        trend = feed.entries[0].title if feed.entries else "Future Technology"
+        print(f"Trend: {trend}")
         
         # 2. SCRIPT: Groq LLM
         print("--- STEP 2: WRITING SCRIPT ---")
@@ -32,32 +28,33 @@ async def generate_video():
         communicate = edge_tts.Communicate(script, "en-US-ChristopherNeural")
         await communicate.save("voice.mp3")
 
-        # 4. VISUALS: Pexels
+        # 4. VISUALS: Pexels (Using direct API call)
         print("--- STEP 4: FETCHING VIDEO ---")
-        api = PexelsAPI(os.environ.get('PEXELS_API_KEY'))
+        pexels_key = os.environ.get('PEXELS_API_KEY')
+        # We search for videos directly via URL
+        search_url = f"https://api.pexels.com/videos/search?query={trend}&per_page=1&orientation=portrait"
+        headers = {"Authorization": pexels_key}
+        r = requests.get(search_url, headers=headers)
         
-        # Try to find video for the trend, if not, try 'nature' as fallback
-        api.search(trend, page=1, results_per_page=1)
-        results = api.get_entries()
-        
-        if not results:
-            print("No video found for trend. Using fallback search...")
-            api.search("abstract tech", page=1, results_per_page=1)
-            results = api.get_entries()
+        # If no video found for trend, search for 'technology'
+        if not r.json().get('videos'):
+            search_url = "https://api.pexels.com/videos/search?query=technology&per_page=1&orientation=portrait"
+            r = requests.get(search_url, headers=headers)
             
-        video_url = results[0].urls['download']
-        print(f"Downloading video from: {video_url}")
+        video_data = r.json()['videos'][0]
+        # Get the HD video link
+        video_url = video_data['video_files'][0]['link']
+        print(f"Downloading: {video_url}")
         
-        v_data = requests.get(video_url)
         with open("video.mp4", 'wb') as f:
-            f.write(v_data.content)
+            f.write(requests.get(video_url).content)
 
         # 5. ASSEMBLY: MoviePy
         print("--- STEP 5: ASSEMBLING ---")
         audio = AudioFileClip("voice.mp3")
         video = VideoFileClip("video.mp4")
         
-        # Loop video to match audio length and resize for mobile
+        # Clip and match duration
         video = video.subclip(0, min(video.duration, 15))
         if video.duration < audio.duration:
             video = video.loop(duration=audio.duration)
@@ -65,13 +62,12 @@ async def generate_video():
             video = video.set_duration(audio.duration)
             
         final = video.set_audio(audio)
-        # Force a lower resolution for faster free rendering
-        final.write_videofile("final_shorts.mp4", fps=24, codec="libx264", audio_codec="aac", temp_audiofile='temp-audio.m4a', remove_temp=True)
+        final.write_videofile("final_shorts.mp4", fps=24, codec="libx264", audio_codec="aac")
         print("--- SUCCESS! ---")
 
     except Exception as e:
         print(f"!!! CRITICAL ERROR: {str(e)}")
-        raise e # This tells GitHub the run failed
+        raise e
 
 if __name__ == "__main__":
     asyncio.run(generate_video())
