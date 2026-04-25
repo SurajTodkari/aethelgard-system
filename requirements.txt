@@ -1,8 +1,5 @@
 groq
-pexels-api-py
 edge-tts
 moviepy
-google-api-python-client
-google-auth-oauthlib
-requests
 feedparser
+requests
