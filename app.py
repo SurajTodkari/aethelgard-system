@@ -1,4 +1,4 @@
-# VERSION 2.1 - MOVIEPY v2 COMPATIBLE
+# VERSION 2.2 - UPDATED LLM MODEL
 import os
 import requests
 import feedparser
@@ -6,7 +6,6 @@ import asyncio
 import edge_tts
 from groq import Groq
 
-# New way to import MoviePy to avoid ModuleNotFoundError
 try:
     from moviepy.editor import VideoFileClip, AudioFileClip
 except ImportError:
@@ -14,7 +13,7 @@ except ImportError:
 
 async def generate_video():
     try:
-        print("--- STARTING ENGINE v2.1 ---")
+        print("--- STARTING ENGINE v2.2 ---")
         
         # 1. BRAIN
         print("Finding trend...")
@@ -23,8 +22,13 @@ async def generate_video():
         
         print(f"Trend identified: {trend}")
         client = Groq(api_key=os.environ.get('GROQ_API_KEY'))
+        
+        # WE UPDATED THE MODEL NAME BELOW TO llama-3.1-8b-instant
         prompt = f"Write a 15-second YouTube Short script about {trend}. Direct and punchy. No intro. Maximum 40 words."
-        chat = client.chat.completions.create(model="llama3-8b-8192", messages=[{"role": "user", "content": prompt}])
+        chat = client.chat.completions.create(
+            model="llama-3.1-8b-instant", 
+            messages=[{"role": "user", "content": prompt}]
+        )
         script = chat.choices[0].message.content
         print(f"Script: {script}")
 
@@ -55,16 +59,13 @@ async def generate_video():
         audio = AudioFileClip("voice.mp3")
         video = VideoFileClip("video.mp4")
         
-        # Clip to 15 seconds or audio length
         duration = min(video.duration, audio.duration, 15)
         video = video.subclip(0, duration)
         
-        # Loop if video is shorter than audio
         if video.duration < audio.duration:
             video = video.loop(duration=audio.duration)
         
         final = video.set_audio(audio)
-        # write_videofile is the most stable way
         final.write_videofile("final_shorts.mp4", fps=24, codec="libx264", audio_codec="aac")
         print("--- SUCCESS! ---")
 
