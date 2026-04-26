@@ -1,40 +1,47 @@
+# VERSION 2.1 - MOVIEPY v2 COMPATIBLE
 import os
 import requests
 import feedparser
 import asyncio
 import edge_tts
 from groq import Groq
-from moviepy.editor import VideoFileClip, AudioFileClip
+
+# New way to import MoviePy to avoid ModuleNotFoundError
+try:
+    from moviepy.editor import VideoFileClip, AudioFileClip
+except ImportError:
+    from moviepy import VideoFileClip, AudioFileClip
 
 async def generate_video():
     try:
-        print("--- STARTING ENGINE ---")
+        print("--- STARTING ENGINE v2.1 ---")
         
         # 1. BRAIN
         print("Finding trend...")
         feed = feedparser.parse("https://trends.google.com/trends/trendingsearches/daily/rss?geo=US")
         trend = feed.entries[0].title if feed.entries else "Future Technology"
         
-        print(f"Writing script for: {trend}")
+        print(f"Trend identified: {trend}")
         client = Groq(api_key=os.environ.get('GROQ_API_KEY'))
         prompt = f"Write a 15-second YouTube Short script about {trend}. Direct and punchy. No intro. Maximum 40 words."
         chat = client.chat.completions.create(model="llama3-8b-8192", messages=[{"role": "user", "content": prompt}])
         script = chat.choices[0].message.content
+        print(f"Script: {script}")
 
         # 2. VOICE
         print("Generating voice...")
         communicate = edge_tts.Communicate(script, "en-US-ChristopherNeural")
         await communicate.save("voice.mp3")
 
-        # 3. VISUALS (Direct API call, no library needed)
+        # 3. VISUALS
         print("Fetching video...")
         pexels_key = os.environ.get('PEXELS_API_KEY')
         search_url = f"https://api.pexels.com/videos/search?query={trend}&per_page=1&orientation=portrait"
         r = requests.get(search_url, headers={"Authorization": pexels_key})
-        
-        # Fallback if no video found
         data = r.json()
+        
         if not data.get('videos'):
+            print("Trend video not found, using tech fallback...")
             r = requests.get("https://api.pexels.com/videos/search?query=technology&per_page=1&orientation=portrait", 
                              headers={"Authorization": pexels_key})
             data = r.json()
@@ -46,11 +53,18 @@ async def generate_video():
         # 4. ASSEMBLY
         print("Rendering final video...")
         audio = AudioFileClip("voice.mp3")
-        video = VideoFileClip("video.mp4").subclip(0, min(15, audio.duration))
+        video = VideoFileClip("video.mp4")
+        
+        # Clip to 15 seconds or audio length
+        duration = min(video.duration, audio.duration, 15)
+        video = video.subclip(0, duration)
+        
+        # Loop if video is shorter than audio
         if video.duration < audio.duration:
             video = video.loop(duration=audio.duration)
         
         final = video.set_audio(audio)
+        # write_videofile is the most stable way
         final.write_videofile("final_shorts.mp4", fps=24, codec="libx264", audio_codec="aac")
         print("--- SUCCESS! ---")
 
