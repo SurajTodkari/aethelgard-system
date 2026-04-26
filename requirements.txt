@@ -3,4 +3,4 @@ edge-tts
 moviepy
 feedparser
 requests
-decorator
+Pillow
