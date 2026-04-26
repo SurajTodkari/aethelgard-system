@@ -1,48 +1,42 @@
-import os, requests, feedparser, asyncio, edge_tts
+# VERSION 3.2 - STABLE PRODUCTION
+import os, requests, feedparser, asyncio, edge_tts, re
 from groq import Groq
 
-# --- VERSION-RESILIENT MOVIEPY IMPORTS ---
 try:
     from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeAudioClip
-    import moviepy.video.fx as fx
     V2 = True
-    print("Detected MoviePy v2.0+")
 except ImportError:
     from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeAudioClip
     V2 = False
-    print("Detected MoviePy v1.0")
 
-# --- UTILITY FUNCTIONS FOR VERSION COMPATIBILITY ---
-def get_subclip(clip, start, end):
-    return clip.subclipped(start, end) if V2 else clip.subclip(start, end)
-
-def set_audio(clip, audio):
-    return clip.with_audio(audio) if V2 else clip.set_audio(audio)
-
-def resize_clip(clip, width, height):
-    # This centers and crops for vertical 9:16 aspect ratio
-    return clip.resized(height=height).cropped(center_x=clip.w/2, center_y=clip.h/2, width=width, height=height) if V2 \
-        else clip.resize(height=height).crop(x_center=clip.w/2, y_center=clip.h/2, width=width, height=height)
+def clean_text(text):
+    # Removes AI stage directions like [0s-5s] or (Visual: ...)
+    text = re.sub(r'\[.*?\]', '', text)
+    text = re.sub(r'\(.*?\)', '', text)
+    return text.replace('*', '').strip()
 
 async def generate_world_class_video():
     try:
-        print("--- AETHELGARD v3.1: ARCHITECT EDITION ---")
+        print("--- AETHELGARD v3.2: STABLE PRODUCTION ---")
         client = Groq(api_key=os.environ.get('GROQ_API_KEY'))
 
-        # 1. BRAIN: Advanced Prompting
+        # 1. BRAIN: High-Precision Prompting
         print("Brain: Generating Viral Narrative...")
         prompt = """
-        Write a 20-second high-retention YouTube Short script about 'Future Tech'.
-        Start with a shocker. Use punchy sentences. 
-        Provide 5 'Visual Keywords' for stock footage.
-        Format:
-        Script: [Text]
-        Keywords: [KW1, KW2, KW3, KW4, KW5]
+        Write a 20-second YouTube Short script about 'Future Technology'.
+        STRICT FORMAT:
+        VOICEOVER: [Write only the spoken words here, no timestamps]
+        KEYWORDS: [Keyword1, Keyword2, Keyword3, Keyword4, Keyword5]
         """
         chat = client.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role": "user", "content": prompt}])
         response = chat.choices[0].message.content
-        script_text = response.split("Keywords:")[0].replace("Script:", "").strip()
-        keywords = [k.strip() for k in response.split("Keywords:")[1].strip().replace("[", "").replace("]", "").split(",")]
+        
+        # Robust Parsing
+        script_raw = response.split("VOICEOVER:")[1].split("KEYWORDS:")[0]
+        script_text = clean_text(script_raw)
+        kw_section = response.split("KEYWORDS:")[1]
+        keywords = [k.strip().replace('*', '') for k in kw_section.split(',')]
+        
         print(f"Script: {script_text}\nKeywords: {keywords}")
 
         # 2. VOICE
@@ -51,8 +45,8 @@ async def generate_world_class_video():
         voice_audio = AudioFileClip("voice.mp3")
         total_duration = voice_audio.duration
 
-        # 3. VISUALS: Multi-Scene Assembly
-        print(f"Visuals: Scavenging {len(keywords)} clips...")
+        # 3. VISUALS: Scavenging with Fallbacks
+        print("Visuals: Building Cinematic Timeline...")
         pexels_key = os.environ.get('PEXELS_API_KEY')
         final_clips = []
         clip_target_dur = total_duration / len(keywords)
@@ -61,36 +55,43 @@ async def generate_world_class_video():
             search_url = f"https://api.pexels.com/videos/search?query={kw}&per_page=1&orientation=portrait"
             r = requests.get(search_url, headers={"Authorization": pexels_key}).json()
             
-            if r.get('videos'):
-                v_url = r['videos'][0]['video_files'][0]['link']
-                v_path = f"temp_v_{i}.mp4"
-                with open(v_path, 'wb') as f: f.write(requests.get(v_url).content)
-                
-                raw_clip = VideoFileClip(v_path)
-                # Apply high-quality resize/crop for vertical 1080x1920
-                processed_clip = resize_clip(raw_clip, 1080, 1920)
-                final_clips.append(get_subclip(processed_clip, 0, clip_target_dur))
+            video_files = r.get('videos', [])
+            if not video_files: # Fallback if specific keyword fails
+                print(f"Fallback for keyword: {kw}")
+                r = requests.get("https://api.pexels.com/videos/search?query=technology&per_page=1&orientation=portrait", 
+                                 headers={"Authorization": pexels_key}).json()
+                video_files = r.get('videos', [])
 
-        # 4. AUDIO: Background Music Integration
-        print("Audio: Adding Background Music...")
-        # Using a reliable royalty-free music link
+            v_url = video_files[0]['video_files'][0]['link']
+            v_path = f"temp_v_{i}.mp4"
+            with open(v_path, 'wb') as f: f.write(requests.get(v_url).content)
+            
+            clip = VideoFileClip(v_path)
+            # Standardizing resolution
+            clip = clip.resized(height=1920) if V2 else clip.resize(height=1920)
+            clip = clip.cropped(center_x=clip.w/2, center_y=clip.h/2, width=1080, height=1920) if V2 \
+                   else clip.crop(x_center=clip.w/2, y_center=clip.h/2, width=1080, height=1920)
+            
+            # Use subclipped (v2) or subclip (v1)
+            duration_to_use = min(clip.duration, clip_target_dur)
+            final_clips.append(clip.subclipped(0, duration_to_use) if V2 else clip.subclip(0, duration_to_use))
+
+        # 4. AUDIO: Layering Music
+        print("Audio: Layering background track...")
         music_req = requests.get("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3")
         with open("bg_music.mp3", "wb") as f: f.write(music_req.content)
-        
         bg_music = AudioFileClip("bg_music.mp3")
-        bg_music = bg_music.with_volume_scaled(0.1) if V2 else bg_music.volumex(0.1)
-        bg_music = bg_music.with_duration(total_duration) if V2 else bg_music.set_duration(total_duration)
+        bg_music = bg_music.with_volume_scaled(0.15) if V2 else bg_music.volumex(0.15)
+        bg_music = bg_music.with_duration(total_duration) if hasattr(bg_music, 'with_duration') else bg_music.set_duration(total_duration)
 
         # 5. FINAL RENDER
-        print("Assembly: Merging Multi-Track Video...")
+        print("Assembly: Multi-track Render...")
         video_track = concatenate_videoclips(final_clips, method="compose")
-        
-        # Mix Voice + Music
         comp_audio = CompositeAudioClip([voice_audio, bg_music])
-        video_with_audio = set_audio(video_track, comp_audio)
         
-        video_with_audio.write_videofile("final_shorts.mp4", fps=24, codec="libx264", audio_codec="aac")
-        print("--- MISSION SUCCESS ---")
+        final_video = video_track.with_audio(comp_audio) if V2 else video_track.set_audio(comp_audio)
+        final_video.write_videofile("final_shorts.mp4", fps=24, codec="libx264", audio_codec="aac")
+        print("--- SUCCESS ---")
 
     except Exception as e:
         print(f"!!! CRITICAL ERROR: {str(e)}")
